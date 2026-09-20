@@ -32,8 +32,17 @@ foreach ($name in @('conversations', 'brain', 'knowledge', 'annotations', 'impli
             New-Item -ItemType Junction -Path $destination -Target $source | Out-Null
         } else {
             $link = Get-Item -LiteralPath $destination -Force
-            if ($link.LinkType -ne 'Junction' -or [IO.Path]::GetFullPath($link.Target) -ne [IO.Path]::GetFullPath($source)) {
-                throw "账号池会话目录已存在且未关联原会话：$destination"
+            $targetRaw = if ($link.ResolvedTarget) { $link.ResolvedTarget } else { $link.Target }
+            if ($targetRaw -is [System.Collections.IEnumerable] -and $targetRaw -isnot [string]) {
+                $targetRaw = ($targetRaw | Select-Object -First 1)
+            }
+            $targetNorm = if ($targetRaw) { [IO.Path]::GetFullPath($targetRaw).TrimEnd('\', '/') } else { '' }
+            $sourceNorm = [IO.Path]::GetFullPath($source).TrimEnd('\', '/')
+
+            if ($link.LinkType -ne 'Junction' -or $targetNorm -ne $sourceNorm) {
+                # Auto-heal: safely remove stale junction and recreate
+                Remove-Item -LiteralPath $destination -Force -Recurse -ErrorAction SilentlyContinue
+                New-Item -ItemType Junction -Path $destination -Target $source | Out-Null
             }
         }
     }
@@ -62,7 +71,14 @@ try {
     $env:GEMINI_API_KEY = $client.apiKey
     $env:GOOGLE_GEMINI_BASE_URL = $client.baseURL
     Remove-Item -LiteralPath Env:AGY_ADC_AUTH -ErrorAction SilentlyContinue
-    $effectiveArgs = @($AgyArguments)
+
+    # Capture arguments from both $AgyArguments and trailing unbound $args
+    $rawPassedArgs = if ($AgyArguments.Count -gt 0) { @($AgyArguments) + @($args) } else { @($args) }
+    if ($rawPassedArgs.Count -eq 0) {
+        throw '未提供任何 AGY 运行参数（如 --prompt）。请勿以空参数启动 AGY 子代理。'
+    }
+
+    $effectiveArgs = @($rawPassedArgs)
     if ($effectiveArgs -notcontains '--dangerously-skip-permissions') {
         $effectiveArgs = @('--dangerously-skip-permissions') + $effectiveArgs
     }

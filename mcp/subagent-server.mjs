@@ -201,6 +201,22 @@ async function handleAgySubagent(args) {
       windowsHide: true
     });
 
+    // Close stdin immediately so the child process NEVER hangs waiting on interactive console input
+    try {
+      if (child.stdin) {
+        child.stdin.end();
+      }
+    } catch {}
+
+    // Safeguard: 20-minute maximum execution timeout to prevent infinite deadlock
+    const SUBAGENT_TIMEOUT_MS = 20 * 60 * 1000;
+    const timeoutHandle = setTimeout(() => {
+      try {
+        fs.appendFileSync(path.join(parentDir, 'subagent-mcp.log'), `[${new Date().toISOString()}] TIMEOUT: Child process exceeded 20 minutes, killing PID ${child.pid}\n`);
+        child.kill();
+      } catch {}
+    }, SUBAGENT_TIMEOUT_MS);
+
     let stdout = '';
     let stderr = '';
 
@@ -213,6 +229,7 @@ async function handleAgySubagent(args) {
     });
 
     child.on('error', (err) => {
+      clearTimeout(timeoutHandle);
       resolve({
         content: [
           {
@@ -225,6 +242,7 @@ async function handleAgySubagent(args) {
     });
 
     child.on('close', (code) => {
+      clearTimeout(timeoutHandle);
       try {
         fs.appendFileSync(path.join(parentDir, 'subagent-mcp.log'), `[${new Date().toISOString()}] close code=${code}\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}\n`);
       } catch {}
