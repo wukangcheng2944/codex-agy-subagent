@@ -68,7 +68,7 @@ if ($isLocal) {
         try {
             Invoke-RestMethod -Uri $downloadUrl -OutFile $item.Dest -ErrorAction Stop
         } catch {
-            Write-Host "Warning: Failed to download $($item.Rel) from $downloadUrl: $_" -ForegroundColor Red
+            Write-Host "Warning: Failed to download $($item.Rel) from ${downloadUrl} : $_" -ForegroundColor Red
         }
     }
 }
@@ -241,7 +241,6 @@ if ($currentPath -split ';' -notcontains $userBin) {
 
 Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host "Codex-AGY Subagent & Sidebar Zero-Polling successfully installed!" -ForegroundColor Green
-Write-Host "Usage:" -ForegroundColor Yellow
 Write-Host "  1. Inline MCP Subagent: Call agy_subagent inside Codex"
-Write-Host "  2. Sidebar Dispatch: Run 'agy-sidebar -Task \"<task>\"' or tool 'agy_sidebar_dispatch'"
+Write-Host "  2. Sidebar Dispatch: Run 'agy-sidebar -Task 任务' or tool 'agy_sidebar_dispatch'"
 Write-Host "================================================================================" -ForegroundColor Cyan
