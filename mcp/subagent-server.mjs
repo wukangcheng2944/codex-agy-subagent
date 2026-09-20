@@ -225,7 +225,31 @@ async function handleAgySubagent(args) {
     });
 
     child.on('close', (code) => {
-      const output = stdout.trim() || stderr.trim() || `AGY exited with code ${code}`;
+      try {
+        fs.appendFileSync(path.join(parentDir, 'subagent-mcp.log'), `[${new Date().toISOString()}] close code=${code}\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}\n`);
+      } catch {}
+
+      let output = stdout.trim() || stderr.trim() || `AGY exited with code ${code}`;
+
+      // Safety guard: Protect Codex context window from token overflow
+      const MAX_OUTPUT_CHARS = 32000;
+      if (output.length > MAX_OUTPUT_CHARS) {
+        try {
+          const parsed = JSON.parse(output);
+          if (parsed && typeof parsed.response === 'string' && parsed.response.length > 20000) {
+            const resp = parsed.response;
+            parsed.response = resp.slice(0, 10000) +
+              `\n\n[... Truncated ${resp.length - 20000} chars by AGY Subagent bridge to protect Codex context window ...] \n\n` +
+              resp.slice(-10000);
+            output = JSON.stringify(parsed, null, 2);
+          }
+        } catch {
+          output = output.slice(0, 12000) +
+            `\n\n[... Truncated by AGY Subagent bridge to protect Codex context window ...] \n\n` +
+            output.slice(-12000);
+        }
+      }
+
       resolve({
         content: [
           {
@@ -247,6 +271,14 @@ async function handleAgyStatus() {
     } catch {}
   }
 
+  let taskStatusInfo = 'No recent subagent tasks recorded.';
+  const taskStatusFile = path.join(parentDir, 'agy-task-status.json');
+  if (fs.existsSync(taskStatusFile)) {
+    try {
+      taskStatusInfo = fs.readFileSync(taskStatusFile, 'utf8');
+    } catch {}
+  }
+
   return {
     content: [
       {
@@ -255,7 +287,9 @@ async function handleAgyStatus() {
 - Launcher: ${LAUNCHER_PATH} (exists: ${fs.existsSync(LAUNCHER_PATH)})
 - Client Config:
 ${clientInfo}
-- Mode: Event-driven + Native Subagent MCP Ready`
+- Latest Task Execution Status:
+${taskStatusInfo}
+- Mode: Event-driven + Native Subagent MCP Ready (Context-protected)`
       }
     ],
     isError: false

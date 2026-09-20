@@ -1,7 +1,6 @@
 #requires -Version 5.1
 param(
     [string]$DataDirectory = (Join-Path $env:LOCALAPPDATA 'AGY OAuth Switcher'),
-    [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$AgyArguments = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -33,15 +32,8 @@ foreach ($name in @('conversations', 'brain', 'knowledge', 'annotations', 'impli
             New-Item -ItemType Junction -Path $destination -Target $source | Out-Null
         } else {
             $link = Get-Item -LiteralPath $destination -Force
-            $targetRaw = if ($link.Target -is [System.Collections.IEnumerable] -and $link.Target -isnot [string]) { $link.Target[0] } else { $link.Target }
-            $linkTarget = if ($link.ResolvedTarget) { $link.ResolvedTarget } else { $targetRaw }
-            $fullTarget = if ($linkTarget) { [IO.Path]::GetFullPath($linkTarget).TrimEnd('\', '/') } else { '' }
-            $fullSource = [IO.Path]::GetFullPath($source).TrimEnd('\', '/')
-
-            if ($link.LinkType -ne 'Junction' -or $fullTarget -ne $fullSource) {
-                # If junction is invalid, stale, or target mismatch, safely recreate it
-                Remove-Item -LiteralPath $destination -Force -Recurse -ErrorAction SilentlyContinue
-                New-Item -ItemType Junction -Path $destination -Target $source -Force | Out-Null
+            if ($link.LinkType -ne 'Junction' -or [IO.Path]::GetFullPath($link.Target) -ne [IO.Path]::GetFullPath($source)) {
+                throw "账号池会话目录已存在且未关联原会话：$destination"
             }
         }
     }
@@ -74,8 +66,26 @@ try {
     if ($effectiveArgs -notcontains '--dangerously-skip-permissions') {
         $effectiveArgs = @('--dangerously-skip-permissions') + $effectiveArgs
     }
+
+    $statusFile = Join-Path $DataDirectory 'agy-task-status.json'
+    $startTime = Get-Date
+    $statusData = @{
+        status = 'RUNNING'
+        started_at = $startTime.ToString('o')
+        pid = $PID
+        arguments = $effectiveArgs
+    }
+    try { $statusData | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusFile -Encoding utf8 -Force } catch {}
+
     & $client.executable @effectiveArgs
     $nativeExitCode = $LASTEXITCODE
+
+    $endTime = Get-Date
+    $statusData.status = if ($nativeExitCode -eq 0) { 'SUCCESS' } else { 'FAILED' }
+    $statusData.exit_code = $nativeExitCode
+    $statusData.finished_at = $endTime.ToString('o')
+    $statusData.duration_seconds = ($endTime - $startTime).TotalSeconds
+    try { $statusData | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusFile -Encoding utf8 -Force } catch {}
 } finally {
     foreach ($name in $oldEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $oldEnvironment[$name], 'Process') }
 }
