@@ -26,7 +26,8 @@ if (-not (Test-Path -LiteralPath $Workspace)) {
 }
 
 # 2. Resolve Codex Thread ID
-$dataDir = "C:\Users\EDY\AppData\Local\AGY OAuth Switcher"
+$localApp = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $env:USERPROFILE "AppData\Local" }
+$dataDir = Join-Path $localApp "AGY OAuth Switcher"
 $activeThreadFile = Join-Path $dataDir "active-codex-thread.txt"
 $wsThreadFile = Join-Path $Workspace ".codex-thread"
 

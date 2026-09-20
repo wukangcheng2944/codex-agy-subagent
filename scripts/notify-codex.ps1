@@ -1,6 +1,5 @@
-# AGY Lifecycle Stop Hook Event Dispatcher
 param(
-    [string]$CodexCliPath = 'C:\Users\EDY\AppData\Local\OpenAI\Codex\bin\247581e40ee272fb\codex.exe',
+    [string]$CodexCliPath = '',
     [string]$LogFile = ''
 )
 
@@ -105,35 +104,29 @@ if ([string]::IsNullOrWhiteSpace($extractedSummary)) {
 # 3. Resolve target Codex Thread/Session ID
 $targetThread = $null
 
+$realHome = if ($env:AGY_SWITCHER_NATIVE_HOME) { $env:AGY_SWITCHER_NATIVE_HOME } elseif ($env:USERPROFILE) { $env:USERPROFILE } else { "C:\Users\$env:USERNAME" }
+
 if (-not [string]::IsNullOrWhiteSpace($env:CODEX_THREAD_ID)) {
-    $targetThread = $env:CODEX_THREAD_ID
+    $targetThread = $env:CODEX_THREAD_ID.Trim()
     Write-NotifyLog "Target thread from env CODEX_THREAD_ID: $targetThread"
 }
 
 if (-not $targetThread) {
-    $anchorFile = Join-Path $workspacePath '.codex-thread'
-    if (Test-Path -LiteralPath $anchorFile -PathType Leaf) {
-        $targetThread = (Get-Content -LiteralPath $anchorFile -Raw -Encoding utf8).Trim()
-        Write-NotifyLog "Target thread from .codex-thread: $targetThread"
-    }
-}
-
-if (-not $targetThread) {
-    $activeFile = "C:\Users\EDY\AppData\Local\AGY OAuth Switcher\active-codex-thread.txt"
+    $activeFile = Join-Path $realHome "AppData\Local\AGY OAuth Switcher\active-codex-thread.txt"
     if (Test-Path -LiteralPath $activeFile -PathType Leaf) {
-        $targetThread = (Get-Content -LiteralPath $activeFile -Raw -Encoding utf8).Trim()
-        if ($targetThread) {
+        $candidate = (Get-Content -LiteralPath $activeFile -Raw -Encoding utf8).Trim()
+        if ($candidate) {
+            $targetThread = $candidate
             Write-NotifyLog "Target thread from active-codex-thread.txt: $targetThread"
         }
     }
 }
 
 if (-not $targetThread) {
-    $realHome = if ($env:AGY_SWITCHER_NATIVE_HOME) { $env:AGY_SWITCHER_NATIVE_HOME } else { "C:\Users\EDY" }
     $sessionIndexPath = Join-Path $realHome '.codex\session_index.jsonl'
     if (Test-Path -LiteralPath $sessionIndexPath -PathType Leaf) {
         try {
-            $lines = Get-Content -LiteralPath $sessionIndexPath -Tail 5 -Encoding utf8
+            $lines = Get-Content -LiteralPath $sessionIndexPath -Tail 10 -Encoding utf8
             foreach ($line in ($lines | Sort-Object -Descending)) {
                 if (-not [string]::IsNullOrWhiteSpace($line)) {
                     $sessionObj = $line | ConvertFrom-Json
@@ -149,6 +142,28 @@ if (-not $targetThread) {
         }
     }
 }
+
+if (-not $targetThread) {
+    $anchorFile = Join-Path $workspacePath '.codex-thread'
+    if (Test-Path -LiteralPath $anchorFile -PathType Leaf) {
+        $targetThread = (Get-Content -LiteralPath $anchorFile -Raw -Encoding utf8).Trim()
+        Write-NotifyLog "Target thread from .codex-thread: $targetThread"
+    }
+}
+
+# 3.1 Resolve Codex executable path dynamically
+if ([string]::IsNullOrWhiteSpace($CodexCliPath) -or (-not (Test-Path -LiteralPath $CodexCliPath))) {
+    $foundCmd = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+    if ($foundCmd -and (Test-Path -LiteralPath $foundCmd)) {
+        $CodexCliPath = $foundCmd
+    } else {
+        $candidates = Get-ChildItem -Path (Join-Path $realHome "AppData\Local\OpenAI\Codex\bin") -Filter "codex.exe" -Recurse -ErrorAction SilentlyContinue
+        if ($candidates) {
+            $CodexCliPath = ($candidates | Select-Object -First 1).FullName
+        }
+    }
+}
+Write-NotifyLog "Resolved CodexCliPath: $CodexCliPath"
 
 # 4. Push event notification into Codex queue (Event-driven wakeup)
 if ($targetThread -and (Test-Path -LiteralPath $CodexCliPath -PathType Leaf)) {
