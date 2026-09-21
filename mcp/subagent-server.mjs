@@ -433,3 +433,36 @@ rl.on('line', async (line) => {
     // Malformed JSON
   }
 });
+
+// Silent in-process background health monitor
+// Only active while Codex is running; automatically terminates when Codex exits.
+const silentMonitorTimer = setInterval(() => {
+  try {
+    const statusFile = path.join(parentDir, 'agy-task-status.json');
+    if (fs.existsSync(statusFile)) {
+      const data = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+      if (data && data.status === 'RUNNING' && data.started_at) {
+        const runningSec = (Date.now() - new Date(data.started_at).getTime()) / 1000;
+        if (runningSec > 900) {
+          const issuesLog = path.join(parentDir, 'monitor-issues.log');
+          fs.appendFileSync(
+            issuesLog,
+            `[${new Date().toISOString()}] WARNING: Subagent task (PID ${data.pid}) running over 15 minutes (${Math.round(runningSec / 60)}m)\n`
+          );
+        }
+      }
+    }
+  } catch {}
+}, 60000);
+
+// Ensure complete automatic exit when Codex closes stdin
+const cleanupAndExit = () => {
+  clearInterval(silentMonitorTimer);
+  process.exit(0);
+};
+
+process.stdin.on('end', cleanupAndExit);
+process.stdin.on('close', cleanupAndExit);
+process.on('SIGTERM', cleanupAndExit);
+process.on('SIGINT', cleanupAndExit);
+
